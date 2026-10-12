@@ -31,10 +31,10 @@ The call list lives in RAM by design; user profiles and transcripts are persiste
 ## Architecture
 
 ```
-            ┌──────────────── factotum (one Python process, asyncio) ────────────────┐
- SIP/RTP    │  pjsua2 (C)            audio.py           conversation.py               │
- server ◄──►│  REGISTER/INVITE  ──►  VAD, framing  ──►  STT ─► LLM (+tools) ─► TTS ─┐ │
-            │  G.711/G.722, jitter   resampling    ◄──────────── playback buffer ◄──┘ │
+            ┌──────────────── factotum (one Python process, asyncio) ──────────────────┐
+ SIP/RTP    │  pjsua2 (C)            audio.py           conversation.py                │
+ server ◄──►│  REGISTER/INVITE  ──►  VAD, framing  ──►  STT ─► LLM (+tools) ─► TTS ─┐  │
+            │  G.711/G.722, jitter   resampling    ◄──────────── playback buffer ◄──┘  │
             │  buffer, conf bridge                                                     │
             │  scheduler.py (time windows, retries)   web.py (UI + REST API)           │
             │  calendars.py / google_workspace.py     users.py / auth.py               │
