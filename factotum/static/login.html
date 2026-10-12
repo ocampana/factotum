@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>factotum – sign in</title>
+<style>
+  :root { color-scheme: light dark; --border: #8884; }
+  body { font: 15px/1.5 system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 16px; box-sizing: border-box; }
+  form { width: min(320px, 100%); display: grid; gap: 10px; }
+  h1 { margin: 0 0 8px; font-size: 1.4rem; }
+  input, button { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+  button { background: #2563eb; color: #fff; border: 0; cursor: pointer; }
+  .error { color: #dc2626; }
+</style>
+<script src="i18n.js"></script>
+</head>
+<body data-i18n-title="login.title">
+<form method="post" action="login">
+  <h1>factotum</h1>
+  <p id="error" class="error" data-i18n="login.error" hidden></p>
+  <input name="username" data-i18n-placeholder="login.username" autocomplete="username" required autofocus>
+  <input name="password" type="password" data-i18n-placeholder="login.password" autocomplete="current-password" required>
+  <button type="submit" data-i18n="login.submit"></button>
+</form>
+<script>
+  translatePage();
+  if (new URLSearchParams(location.search).has("error")) document.getElementById("error").hidden = false;
+</script>
+</body>
+</html>

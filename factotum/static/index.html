@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>factotum</title>
+<style>
+  :root { color-scheme: light dark; --border: #8884; --muted: #8888; --blue: #2563eb; --green: #16a34a; --red: #dc2626; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 0 16px 40px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0; font-size: 1.3rem; }
+  nav { display: flex; gap: 6px; }
+  nav button.active { background: var(--blue); color: #fff; }
+  main { max-width: 1100px; margin: 0 auto; }
+  section { margin-top: 20px; }
+  h2 { font-size: 1.1rem; margin: 0 0 10px; }
+  form { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
+  label { display: grid; gap: 4px; font-size: 0.9em; }
+  label.inline { display: flex; gap: 6px; align-items: center; }
+  .wide { grid-column: 1 / -1; }
+  input, select, textarea, button { font: inherit; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; }
+  textarea { min-height: 70px; resize: vertical; }
+  button { cursor: pointer; }
+  button.primary { background: var(--blue); color: #fff; border: 0; }
+  .table { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-weight: 600; font-size: 0.85em; color: var(--muted); }
+  .state { padding: 1px 8px; border-radius: 10px; font-size: 0.85em; border: 1px solid var(--border); white-space: nowrap; }
+  .state.in_progress { border-color: var(--blue); color: var(--blue); }
+  .state.completed { border-color: var(--green); color: var(--green); }
+  .state.failed, .state.expired { border-color: var(--red); color: var(--red); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--red); margin-right: 5px; }
+  .dot.ok { background: var(--green); }
+  .muted { color: var(--muted); font-size: 0.9em; }
+  .message { min-height: 1.5em; }
+  .error { color: var(--red); }
+  .transcript { white-space: pre-wrap; border: 1px solid var(--border); border-radius: 6px; padding: 10px; max-height: 420px; overflow: auto; font-size: 0.92em; }
+  .cal-row { display: grid; grid-template-columns: 2fr 1fr auto; gap: 6px; margin-bottom: 6px; }
+  .calendar-choice { display: flex; flex-wrap: wrap; gap: 10px; }
+  .calendar-choice label { display: flex; gap: 5px; align-items: center; }
+</style>
+<script src="i18n.js"></script>
+</head>
+<body>
+<main>
+<header>
+  <h1>factotum</h1>
+  <nav>
+    <button data-view="calls" class="active" data-i18n="nav.calls"></button>
+    <button data-view="profile" data-i18n="nav.profile"></button>
+    <button data-view="users" id="nav-users" data-i18n="nav.users" hidden></button>
+  </nav>
+  <div><span id="sip"><span class="dot"></span>SIP</span> · <span id="who"></span>
+    <button id="logout" data-i18n="logout" hidden></button></div>
+</header>
+
+<div id="view-calls">
+  <section>
+    <h2 data-i18n="calls.new"></h2>
+    <form id="call-form">
+      <label><span data-i18n="calls.number"></span><input name="number" required placeholder="+39 0444 123456"></label>
+      <label><span data-i18n="calls.from"></span><input name="window_start" type="datetime-local" required></label>
+      <label><span data-i18n="calls.to"></span><input name="window_end" type="datetime-local" required></label>
+      <label><span data-i18n="calls.language"></span>
+        <select name="language" id="language-select"><option value="auto" data-i18n="calls.language_auto"></option></select></label>
+      <label class="wide"><span data-i18n="calls.goal"></span>
+        <textarea name="goal" required data-i18n-placeholder="calls.goal_placeholder"></textarea></label>
+      <div class="wide"><div class="muted" data-i18n="calls.calendars"></div>
+        <div class="calendar-choice" id="calendar-choice"></div></div>
+      <label class="inline"><input type="checkbox" name="report"> <span data-i18n="calls.report"></span></label>
+      <button class="primary" type="submit" data-i18n="calls.add"></button>
+      <div class="wide message" id="call-message"></div>
+    </form>
+  </section>
+  <section>
+    <h2 data-i18n="calls.list"></h2>
+    <div class="table"><table>
+      <thead><tr><th data-i18n="calls.number"></th><th data-i18n="calls.window"></th><th data-i18n="calls.goal"></th>
+        <th data-i18n="calls.state"></th><th data-i18n="calls.outcome"></th><th></th></tr></thead>
+      <tbody id="call-list"></tbody>
+    </table></div>
+  </section>
+  <section id="transcript-section" hidden>
+    <h2><span data-i18n="calls.transcript"></span> <button id="close-transcript" data-i18n="calls.close"></button></h2>
+    <div class="transcript" id="transcript"></div>
+  </section>
+</div>
+
+<div id="view-profile" hidden>
+  <section>
+    <h2 data-i18n="profile.title"></h2>
+    <form id="profile-form">
+      <label><span data-i18n="profile.first_name"></span><input name="first_name" autocomplete="given-name"></label>
+      <label><span data-i18n="profile.last_name"></span><input name="last_name" autocomplete="family-name"></label>
+      <label><span data-i18n="profile.email"></span><input name="email" type="email" autocomplete="email"></label>
+      <label><span data-i18n="profile.phone"></span><input name="phone" type="tel" autocomplete="tel"></label>
+      <div class="wide muted" data-i18n="profile.contact_help"></div>
+      <label><span data-i18n="profile.timezone"></span><input name="timezone" placeholder="Europe/Rome"></label>
+      <label><span data-i18n="profile.report_doc"></span><input name="report_doc_id" data-i18n-placeholder="profile.report_doc_placeholder"></label>
+      <label id="password-field"><span data-i18n="profile.new_password"></span><input name="password" type="password" autocomplete="new-password"></label>
+      <div class="wide">
+        <div class="muted" id="google-help"></div>
+        <h2 style="margin-top:12px" data-i18n="profile.calendars"></h2>
+        <div id="calendar-rows"></div>
+        <button type="button" id="add-calendar" data-i18n="profile.add_calendar"></button>
+        <button type="button" id="check-calendars" data-i18n="profile.check"></button>
+        <div id="check-result" class="muted"></div>
+      </div>
+      <button class="primary" type="submit" data-i18n="profile.save"></button>
+      <div class="wide message" id="profile-message"></div>
+    </form>
+  </section>
+</div>
+
+<div id="view-users" hidden>
+  <section>
+    <h2 data-i18n="users.new"></h2>
+    <form id="user-form">
+      <label><span data-i18n="users.username"></span><input name="username" required></label>
+      <label><span data-i18n="profile.first_name"></span><input name="first_name"></label>
+      <label><span data-i18n="profile.last_name"></span><input name="last_name"></label>
+      <label><span data-i18n="users.password"></span><input name="password" type="password" required autocomplete="new-password"></label>
+      <label class="inline"><input type="checkbox" name="admin"> <span data-i18n="users.admin"></span></label>
+      <button class="primary" type="submit" data-i18n="users.create"></button>
+      <div class="wide message" id="user-message"></div>
+    </form>
+  </section>
+  <section>
+    <h2 data-i18n="users.list"></h2>
+    <div class="table"><table>
+      <thead><tr><th data-i18n="users.name"></th><th data-i18n="users.username"></th><th data-i18n="users.origin"></th>
+        <th data-i18n="users.admin"></th><th data-i18n="users.calendars"></th><th></th></tr></thead>
+      <tbody id="user-list"></tbody>
+    </table></div>
+  </section>
+</div>
+</main>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+let me = null;
+
+async function api(method, path, body) {
+  const options = { method, headers: {} };
+  if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
+  const r = await fetch(path, options);
+  if (r.status === 401) { location.href = "login"; throw new Error("session expired"); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+function esc(text) {
+  const d = document.createElement("div"); d.textContent = text ?? ""; return d.innerHTML;
+}
+
+function showMessage(id, text, isError = false) {
+  const el = $(id); el.textContent = text; el.className = "wide message" + (isError ? " error" : "");
+}
+
+function fmt(iso) {
+  return iso ? new Date(iso).toLocaleString(UI_LANG, { dateStyle: "short", timeStyle: "short" }) : "";
+}
+
+function toLocalInput(date) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+
+// ---------------------------------------------------------------- navigation
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
+  for (const v of ["calls", "profile", "users"]) $("#view-" + v).hidden = v !== b.dataset.view;
+  if (b.dataset.view === "users") loadUsers();
+}));
+
+// ---------------------------------------------------------------- profile
+function showSip(sip) {
+  $("#sip").innerHTML = `<span class="dot ${sip.registered ? "ok" : ""}"></span>SIP <span class="muted">${esc(sip.status)}</span>`;
+}
+
+async function loadProfile() {
+  me = await api("GET", "api/me");
+  const u = me.user;
+  $("#who").textContent = u.name;
+  $("#logout").hidden = me.provider !== "local";
+  $("#nav-users").hidden = !u.admin;
+  $("#password-field").hidden = u.origin !== "local";
+  showSip(me.sip);
+  const select = $("#language-select");
+  if (select.options.length === 1) for (const code of me.languages) select.add(new Option(languageName(code), code));
+  const f = $("#profile-form");
+  f.first_name.value = u.first_name; f.last_name.value = u.last_name;
+  f.email.value = u.email; f.phone.value = u.phone; f.timezone.value = u.timezone; f.report_doc_id.value = u.report_doc_id;
+  $("#google-help").textContent = me.google_enabled ? t("profile.google_help", { email: me.service_account }) : t("profile.google_off");
+  $("#calendar-rows").innerHTML = "";
+  u.calendars.forEach((c) => addCalendarRow(c));
+  $("#calendar-choice").innerHTML = u.calendars.length
+    ? u.calendars.map((c) => `<label><input type="checkbox" name="calendars" value="${esc(c.id)}" checked> ${esc(c.label || c.id)}</label>`).join("")
+    : `<span class="muted">${esc(t("calls.no_calendars"))}</span>`;
+}
+
+// Periodic refresh of the SIP status only (does not touch forms being edited)
+async function refreshStatus() {
+  showSip((await api("GET", "api/me")).sip);
+}
+
+function addCalendarRow(c = { id: "", label: "" }) {
+  const row = document.createElement("div");
+  row.className = "cal-row";
+  row.innerHTML = `<input placeholder="${esc(t("profile.calendar_id"))}" value="${esc(c.id)}" class="cal-id">
+    <input placeholder="${esc(t("profile.calendar_label"))}" value="${esc(c.label)}" class="cal-label">
+    <button type="button">✕</button>`;
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  $("#calendar-rows").append(row);
+}
+
+$("#add-calendar").addEventListener("click", () => addCalendarRow());
+
+$("#check-calendars").addEventListener("click", async () => {
+  $("#check-result").textContent = t("profile.checking");
+  try {
+    const r = await api("GET", "api/me/calendars/check");
+    $("#check-result").innerHTML = r.calendars.map((c) => `${c.ok ? "✅" : "❌"} ${esc(c.id)}: ${esc(c.message)}`).join("<br>") || esc(t("profile.none"));
+  } catch (e) { $("#check-result").textContent = e.message; }
+});
+
+$("#profile-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  const calendars = [...document.querySelectorAll(".cal-row")].map((r) => ({
+    id: r.querySelector(".cal-id").value.trim(), label: r.querySelector(".cal-label").value.trim(), backend: "google",
+  })).filter((c) => c.id);
+  const data = { first_name: f.first_name.value, last_name: f.last_name.value, email: f.email.value,
+    phone: f.phone.value, timezone: f.timezone.value, report_doc_id: f.report_doc_id.value, calendars };
+  if (f.password.value) data.password = f.password.value;
+  try { await api("PUT", "api/me", data); f.password.value = ""; showMessage("#profile-message", t("profile.saved")); await loadProfile(); }
+  catch (e) { showMessage("#profile-message", e.message, true); }
+});
+
+$("#logout").addEventListener("click", async () => { await api("POST", "api/logout", {}); location.href = "login"; });
+
+// ---------------------------------------------------------------- calls
+function actionLabel(state) {
+  return state === "in_progress" ? t("calls.hangup") : state === "pending" ? t("calls.cancel") : t("calls.remove");
+}
+
+async function loadCalls() {
+  const { calls } = await api("GET", "api/calls");
+  $("#call-list").innerHTML = calls.map((c) => `
+    <tr>
+      <td>${esc(c.number)}<div class="muted">${esc(languageName(c.language))}${c.auto_language ? ` (${esc(t("calls.auto"))})` : ""}</div></td>
+      <td>${fmt(c.window_start)}<br>${fmt(c.window_end)}</td>
+      <td>${esc(c.goal)}</td>
+      <td><span class="state ${c.state}">${esc(t("state." + c.state))}</span>
+        <div class="muted">${esc(t("calls.attempts"))}: ${c.attempts}${c.next_attempt && c.state === "pending" ? `<br>${esc(t("calls.next"))}: ${fmt(c.next_attempt)}` : ""}</div></td>
+      <td>${esc(c.outcome)}${c.contact ? `<div class="muted">${esc(t("calls.with"))} ${esc(c.contact)}</div>` : ""}
+        ${c.summary ? `<div class="muted">${esc(c.summary)}</div>` : ""}
+        ${c.events.map((e) => e.link ? `<div><a href="${esc(e.link)}" target="_blank" rel="noopener">📅 ${esc(t("calls.appointment"))}</a></div>` : "").join("")}
+        ${c.events_to_retry ? `<div class="error">${esc(t("calls.unsaved", { n: c.events_to_retry }))} <button data-retry="${c.id}">${esc(t("calls.retry"))}</button></div>` : ""}
+        ${c.error ? `<div class="error">${esc(c.error)}</div>` : ""}</td>
+      <td>${c.transcript ? `<button data-transcript="${c.id}">${esc(t("calls.transcript"))}</button>` : ""}
+        <button data-delete="${c.id}">${esc(actionLabel(c.state))}</button></td>
+    </tr>`).join("") || `<tr><td colspan="6" class="muted">${esc(t("calls.empty"))}</td></tr>`;
+}
+
+$("#call-list").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button"); if (!b) return;
+  try {
+    if (b.dataset.delete) { await api("DELETE", `api/calls/${b.dataset.delete}`); await loadCalls(); }
+    if (b.dataset.retry) { await api("POST", `api/calls/${b.dataset.retry}/retry-events`, {}); await loadCalls(); }
+    if (b.dataset.transcript) {
+      const { entries } = await api("GET", `api/calls/${b.dataset.transcript}/transcript`);
+      $("#transcript").textContent = entries.filter((e) => !e.header)
+        .map((e) => `[${e.ts.slice(11, 19)}] ${e.role.toUpperCase()}: ${e.text}`).join("\n");
+      $("#transcript-section").hidden = false;
+      $("#transcript-section").scrollIntoView({ behavior: "smooth" });
+    }
+  } catch (e) { showMessage("#call-message", e.message, true); }
+});
+
+$("#close-transcript").addEventListener("click", () => { $("#transcript-section").hidden = true; });
+
+$("#call-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  const data = {
+    number: f.number.value, window_start: f.window_start.value, window_end: f.window_end.value,
+    language: f.language.value, goal: f.goal.value, report: f.report.checked,
+    calendars: [...f.querySelectorAll('input[name="calendars"]:checked')].map((x) => x.value),
+  };
+  try {
+    const { call } = await api("POST", "api/calls", data);
+    showMessage("#call-message", t("calls.added", { number: call.number, language: languageName(call.language) }));
+    f.number.value = ""; f.goal.value = "";
+    await loadCalls();
+  } catch (e) { showMessage("#call-message", e.message, true); }
+});
+
+// ---------------------------------------------------------------- users (admin)
+async function loadUsers() {
+  const { users } = await api("GET", "api/users");
+  $("#user-list").innerHTML = users.map((u) => `<tr>
+    <td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.origin)}</td><td>${u.admin ? esc(t("users.yes")) : ""}</td>
+    <td>${u.calendars.length}</td>
+    <td>${u.id !== me.user.id ? `<button data-delete-user="${u.id}">${esc(t("users.delete"))}</button>` : ""}</td></tr>`).join("");
+}
+
+$("#user-list").addEventListener("click", async (ev) => {
+  const id = ev.target.dataset?.deleteUser; if (!id) return;
+  try { await api("DELETE", `api/users/${id}`); await loadUsers(); } catch (e) { showMessage("#user-message", e.message, true); }
+});
+
+$("#user-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  try {
+    await api("POST", "api/users", { username: f.username.value, first_name: f.first_name.value, last_name: f.last_name.value, password: f.password.value, admin: f.admin.checked });
+    f.reset(); showMessage("#user-message", t("users.created")); await loadUsers();
+  } catch (e) { showMessage("#user-message", e.message, true); }
+});
+
+// ---------------------------------------------------------------- startup
+(async () => {
+  translatePage();
+  const now = new Date(); now.setSeconds(0, 0);
+  $("#call-form").window_start.value = toLocalInput(now);
+  $("#call-form").window_end.value = toLocalInput(new Date(now.getTime() + 2 * 3600e3));
+  await loadProfile();
+  await loadCalls();
+  setInterval(() => { loadCalls().catch(() => {}); refreshStatus().catch(() => {}); }, 5000);
+})();
+</script>
+</body>
+</html>
