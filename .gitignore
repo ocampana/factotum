@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# Segreti e configurazione locale
+.env
+*service-account*.json
+secrets/
+
+# Dati generati a runtime
+data/
+transcripts/

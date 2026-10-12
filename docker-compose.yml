@@ -1,0 +1,27 @@
+services:
+  factotum:
+    build: .
+    image: factotum:latest
+    container_name: factotum
+    restart: unless-stopped
+    # Rete dell'host: evita il NAT tra container e server SIP sull'RTP
+    # (senza, il problema tipico è l'audio monodirezionale).
+    network_mode: host
+    env_file: .env
+    environment:
+      FACTOTUM_DATA_DIR: /data
+      # GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/google_sa
+    volumes:
+      - ./data:/data
+      # - ./config:/app/config:ro              # per personalizzare sip.toml e il prompt
+    # secrets:
+    #   - google_sa
+    mem_limit: 150m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
+# secrets:
+#   google_sa:
+#     file: ./secrets/google-service-account.json

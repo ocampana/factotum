@@ -1,0 +1,9 @@
+# Official Mistral SDK (Voxtral STT, chat, Voxtral TTS)
+mistralai>=3.2,<4
+# Web server and HTTP client for the Google APIs
+aiohttp>=3.10,<4
+# JWT signing for the Google service account
+google-auth>=2.30,<3
+# audioop was removed in Python 3.13: drop-in replacement
+audioop-lts>=0.2; python_version >= "3.13"
+# Note: pjsua2 (pjsip Python bindings) is not on PyPI, it is built in the Dockerfile

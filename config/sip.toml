@@ -1,0 +1,37 @@
+# factotum SIP configuration.
+# Sensitive or deployment-specific values (server, user, password) come from
+# environment variables, which always take precedence:
+#   SIP_SERVER, SIP_PORT, SIP_TRANSPORT, SIP_USER, SIP_PASSWORD,
+#   SIP_DOMAIN, SIP_OUTBOUND_PROXY, SIP_CODECS, SIP_STUN, SIP_PLUS_REPLACEMENT
+
+[sip]
+port = 5060
+transport = "udp"            # udp | tcp | tls
+local_port = 5060            # local SIP port (0 = let the OS choose)
+codecs = ["PCMA", "PCMU"]    # in order of preference; "G722" is also available
+register_timeout_s = 300     # registration expiry
+register_retry_s = 30        # retry interval when registration fails
+rtp_port_start = 10000
+rtp_port_range = 100
+stun = ""                    # e.g. "stun.l.google.com:19302" if the SIP server is outside the LAN
+# How international numbers are dialed: the leading "+" is replaced with this
+# string. Many providers accept "+", some PBXs (e.g. FRITZ!Box) want "00".
+plus_replacement = "+"
+user_agent = "factotum"
+
+[calls]
+invite_timeout_s = 45        # maximum ringing time before giving up
+max_duration_s = 600         # maximum length of a conversation
+max_silence_s = 15           # callee silence before prompting them
+max_attempts = 3             # attempts per number (busy, no answer, dropped)
+retry_after_s = 600          # wait between attempts
+default_country_code = "39"  # country code for numbers without "+" or "00"
+summary_language = "English" # language of call summaries, events and reports
+
+[vad]
+end_of_turn_ms = 700         # silence that ends the callee's turn
+min_speech_ms = 250          # minimum speech for a valid turn
+max_segment_ms = 30000
+min_threshold = 300          # minimum RMS (16-bit PCM) considered voice
+noise_factor = 3.0           # threshold = background noise * factor
+barge_in_factor = 2.0        # higher threshold while the agent is speaking
