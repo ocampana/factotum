@@ -74,7 +74,8 @@ Environment variables (see `.env.example`) override `config/sip.toml`.
 | `FACTOTUM_AUTH` | `local`, `ha_ingress`, `api_token` (comma separated) |
 | `FACTOTUM_DEFAULT_COUNTRY_CODE` | country code for numbers without `+`/`00` (default `39`) |
 | `FACTOTUM_SUMMARY_LANGUAGE` | language of summaries, events and reports (default `English`) |
-| `MISTRAL_TTS_VOICES` | voice per language, e.g. `it:<voice_id>,de:<voice_id>` |
+| `MISTRAL_TTS_VOICES` | voice per language, e.g. `it:<voice_id>,de:<voice_id>` (see [TTS voices](#tts-voices)) |
+| `MISTRAL_TTS_VOICE` | fallback voice for languages without a dedicated one |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | enables Google Calendar and Docs |
 
 `config/system_prompt.txt` contains the agent instructions (placeholders such as
@@ -85,18 +86,39 @@ to customize it.
 
 At startup factotum lists the voices available to your Mistral account and picks,
 for each language, a voice declaring it: custom (cloned) voices first, then
-"Neutral" presets. Preset voices only cover English and French, so for Italian,
-German and the other languages clone a voice from an 8-15 second recording of a
-native speaker (only use recordings you have the right to use):
+"Neutral" presets. The full list is logged at `DEBUG` level, and a warning names
+the languages left without a voice.
+
+Preset voices only cover English (`en_us`, `en_gb`) and French (`fr_fr`). The model
+speaks all nine supported languages, but without a matching voice a call in Italian
+or German uses the fallback voice and sounds foreign-accented. To get a native
+voice, clone one from an 8-15 second recording of clear speech by a native speaker
+(wav or mp3, no background noise; only use recordings you have the right to use):
 
 ```sh
+# List voices and the automatic choice per language
 python -m factotum.voices list
-python -m factotum.voices create clip.wav --language it --name Giulia --gender female
+
+# Clone a voice for Italian (repeat with --language de for German)
+python -m factotum.voices create clip_it.wav --language it --name Giulia --gender female
 ```
 
-With Docker: `docker run --rm --env-file .env -v "$PWD":/app factotum:dev python -m factotum.voices list`.
-The new voice is picked automatically for that language; `MISTRAL_TTS_VOICES`
-can force a specific one.
+With Docker (option used for development), run the same commands in the image:
+
+```sh
+docker run --rm --env-file .env -v "$PWD":/app factotum:dev python -m factotum.voices list
+docker run --rm --env-file .env -v "$PWD":/app factotum:dev \
+  python -m factotum.voices create clip_it.wav --language it --name Giulia --gender female
+```
+
+The command prints the new `voice_id`. After a restart the voice is used
+automatically for calls in that language. Two optional variables override the
+automatic choice:
+
+- `MISTRAL_TTS_VOICES=it:<voice_id>,de:<voice_id>` forces the voice per language
+  (useful when you have several voices for the same language);
+- `MISTRAL_TTS_VOICE=<voice_id>` sets the fallback voice for languages without one
+  (default: the neutral English preset).
 
 ## Google Calendar and Docs
 
