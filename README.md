@@ -84,9 +84,19 @@ to customize it.
 ### TTS voices
 
 At startup factotum lists the voices available to your Mistral account and picks,
-for each language, a voice declaring it (custom voices first). Preset voices may
-not cover every language: create a voice for Italian or German with the Mistral
-voices API and map it with `MISTRAL_TTS_VOICES`.
+for each language, a voice declaring it: custom (cloned) voices first, then
+"Neutral" presets. Preset voices only cover English and French, so for Italian,
+German and the other languages clone a voice from an 8-15 second recording of a
+native speaker (only use recordings you have the right to use):
+
+```sh
+python -m factotum.voices list
+python -m factotum.voices create clip.wav --language it --name Giulia --gender female
+```
+
+With Docker: `docker run --rm --env-file .env -v "$PWD":/app factotum:dev python -m factotum.voices list`.
+The new voice is picked automatically for that language; `MISTRAL_TTS_VOICES`
+can force a specific one.
 
 ## Google Calendar and Docs
 

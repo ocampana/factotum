@@ -21,7 +21,7 @@ from aiohttp import web
 
 from factotum.auth import Authenticator
 from factotum.calendars import CalendarBackend, CalendarError
-from factotum.config import Config, load_config, validate_config
+from factotum.config import Config, load_config, load_dotenv, validate_config
 from factotum.conversation import Conversation
 from factotum.google_workspace import GoogleCalendar, GoogleClient, GoogleDocs
 from factotum.languages import LANGUAGES
@@ -33,18 +33,6 @@ from factotum.users import User, UserStore
 from factotum.web import create_web_app
 
 log = logging.getLogger("factotum")
-
-
-def load_dotenv(path: Path) -> None:
-    """Read a `.env` file (development only) without overriding the environment."""
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 class Application:

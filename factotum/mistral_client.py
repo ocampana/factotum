@@ -16,7 +16,7 @@ from mistralai.client import Mistral, errors
 
 from .audio import SAMPLE_RATE, TtsConverter, pcm16_to_wav
 from .config import MistralConfig
-from .languages import PHRASES, phrase
+from .languages import LANGUAGES, PHRASES, phrase
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +34,30 @@ def _is_transient(e: BaseException) -> bool:
         return e.status_code == 429 or e.status_code >= 500
     # Network errors of the underlying HTTP client
     return type(e).__module__.split(".")[0] in ("httpx", "httpx2", "httpcore")
+
+
+def language_code(tag: str) -> str:
+    """Normalize a voice language tag (e.g. "it_it", "en-GB") to ISO 639-1 ("it")."""
+    return tag.replace("-", "_").split("_")[0].lower()
+
+
+def choose_voices(voices) -> tuple[dict[str, str], str]:
+    """Pick one voice per language, plus a fallback voice.
+
+    Custom (cloned) voices win over presets; among presets, "Neutral" ones are
+    preferred over expressive variants such as "Sad" or "Angry"."""
+    def rank(voice) -> tuple[int, int]:
+        custom = str(voice.type) != "preset"
+        neutral = "neutral" in voice.name.lower()
+        return (0 if custom else 1, 0 if neutral else 1)
+
+    ordered = sorted(voices, key=rank)
+    per_language: dict[str, str] = {}
+    for voice in ordered:
+        for tag in voice.languages or []:
+            per_language.setdefault(language_code(tag), voice.id)
+    fallback = per_language.get("en") or (ordered[0].id if ordered else "")
+    return per_language, fallback
 
 
 class MistralServices:
@@ -74,14 +98,19 @@ class MistralServices:
         except MistralServiceError as e:
             log.warning("Cannot list TTS voices: %s", e)
             return
-        voices = sorted(response.items, key=lambda v: 0 if str(v.type) != "preset" else 1)
-        for voice in voices:
-            log.info("Available TTS voice: %s (%s) languages=%s type=%s",
-                     voice.name, voice.id, ",".join(voice.languages or []), voice.type)
-            for language in voice.languages or []:
-                self.voices.setdefault(language.split("-")[0].split("_")[0].lower(), voice.id)
-        if not self.cfg.tts_voice and voices:
-            self.cfg.tts_voice = voices[0].id
+        for voice in response.items:
+            log.debug("Available TTS voice: %s (%s) languages=%s type=%s",
+                      voice.name, voice.id, ",".join(voice.languages or []), voice.type)
+        per_language, fallback = choose_voices(response.items)
+        for language, voice_id in per_language.items():
+            self.voices.setdefault(language, voice_id)  # explicit MISTRAL_TTS_VOICES win
+        if not self.cfg.tts_voice:
+            self.cfg.tts_voice = fallback
+        missing = [lang for lang in LANGUAGES if lang not in self.voices]
+        if missing:
+            log.warning("No TTS voice for %s: the fallback voice will be used (with a foreign accent). "
+                        "Clone one with: python -m factotum.voices create <clip> --language <code>",
+                        ", ".join(missing))
         log.info("Voices per language: %s (fallback: %s)", self.voices, self.cfg.tts_voice or "API default")
 
     def voice_for(self, language: str) -> str | None:
