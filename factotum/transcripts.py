@@ -58,6 +58,17 @@ class Transcript:
             "text": f"{name}({json.dumps(arguments, ensure_ascii=False)}) -> {json.dumps(result, ensure_ascii=False)}",
         })
 
+    def costs(self, summary: dict, rendered: str) -> None:
+        """Append the cost section: a JSON entry and a final block in the text file."""
+        entry = {"ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+                 "role": "costs", "text": f"total {summary['total']:.6f} {summary['currency']}",
+                 "costs": summary, "rendered": rendered}
+        self.entries.append(entry)
+        with self.jsonl_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        with self.txt_path.open("a", encoding="utf-8") as f:
+            f.write("-" * 60 + "\n" + rendered + "\n")
+
     def dialogue(self) -> list[dict]:
         return [e for e in self.entries if e["role"] in ("agent", "callee")]
 

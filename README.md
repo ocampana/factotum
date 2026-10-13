@@ -22,7 +22,8 @@ It runs in an Alpine-based Docker image (~100 MB) and targets less than 150 MB o
   selected, including who it spoke with, the call goal, notes and the last turns of the call.
 - If asked during a booking, the agent provides the user's **email and phone** from their profile.
 - Optional **report** appended to a Google Doc after each call.
-- **Full transcript** of every call (`.jsonl` + `.txt`) under `data/transcripts/<user>/`.
+- **Full transcript** of every call (`.jsonl` + `.txt`) under `data/transcripts/<user>/`,
+  ending with a **cost estimate** of LLM, STT and TTS usage for that call.
 - Robustness: SIP re-registration, retries on busy/no answer/dropped calls within the window,
   timeouts and retries on every Mistral request, pre-synthesized fallback phrases, clean shutdown.
 
@@ -77,6 +78,24 @@ Environment variables (see `.env.example`) override `config/sip.toml`.
 | `MISTRAL_TTS_VOICES` | voice per language, e.g. `it:<voice_id>,de:<voice_id>` (see [TTS voices](#tts-voices)) |
 | `MISTRAL_TTS_VOICE` | fallback voice for languages without a dedicated one |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | enables Google Calendar and Docs |
+
+### Cost estimate
+
+Every transcript ends with a section like this:
+
+```
+COSTS (estimate, USD)
+  LLM  mistral-small-latest     5 requests, 31,240 input / 612 output tokens           0.005053 USD
+  STT  voxtral-mini-latest      5 requests, 41.3 s of audio                            0.002065 USD
+  TTS  voxtral-mini-tts-2603    9 requests, 1,184 characters                           0.018944 USD
+  TOTAL                                                                                0.026062 USD
+```
+
+Token counts and audio seconds come from the API responses; TTS is counted per
+character sent. Prices are in the `[pricing]` section of `config/sip.toml`
+(Mistral list prices at the time of writing): update them if Mistral changes its
+pricing. The same figures are stored as a `costs` entry in the `.jsonl` file and the
+total is added to the Google Docs report.
 
 `config/system_prompt.txt` contains the agent instructions (placeholders such as
 `{goal}`, `{language}`, `{user_name}`, `{user_email}`). Mount your own `config/`

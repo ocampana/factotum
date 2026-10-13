@@ -26,6 +26,7 @@ from .audio import FRAME_MS, Vad
 from .calendars import (Appointment, CalendarBackend, CalendarError, CallContext, build_event,
                         parse_datetime)
 from .config import CallsConfig, VadConfig
+from .costs import CostTracker, Pricing
 from .languages import LANGUAGES, dial_string, phrase
 from .mistral_client import MistralServiceError, MistralServices
 from .scheduler import Call
@@ -58,7 +59,8 @@ def _clean_for_speech(text: str) -> str:
 class Conversation:
     def __init__(self, call: Call, user: User, sip: SipEngine, services: MistralServices,
                  calendar: CalendarBackend | None, transcript: Transcript,
-                 calls_cfg: CallsConfig, vad_cfg: VadConfig, system_prompt: str):
+                 calls_cfg: CallsConfig, vad_cfg: VadConfig, system_prompt: str,
+                 pricing: Pricing | None = None):
         self.call = call
         self.user = user
         self.sip = sip
@@ -77,6 +79,8 @@ class Conversation:
         self.last_heard = time.monotonic()
         self.prompted = False
         self._speak_task: asyncio.Task | None = None
+        mc = services.cfg
+        self.costs = CostTracker(pricing or Pricing(), mc.llm_model, mc.stt_model, mc.tts_model)
 
     # ------------------------------------------------------------------ prompt and tools
 
@@ -166,7 +170,9 @@ class Conversation:
         """Run the whole call; update outcome and summary of the `Call`."""
         c = self.call
         # Service phrases are prepared while the phone is ringing
-        phrases_task = asyncio.create_task(self.services.prepare_phrases(self.language))
+        if self.services.cached_phrase("repeat", self.language) is not None:
+            self.costs.notes.append("service phrases were synthesized by an earlier call and are not counted")
+        phrases_task = asyncio.create_task(self.services.prepare_phrases(self.language, self.costs))
         listen_task: asyncio.Task | None = None
         try:
             number = dial_string(c.number, self.sip.cfg.plus_replacement)
@@ -199,6 +205,8 @@ class Conversation:
                 except Exception:  # noqa: BLE001
                     log.exception("Error while hanging up")
             self.transcript.system(f"Call ended. Outcome: {c.outcome or 'n/a'}")
+            c.costs = self.costs.summary()
+            self.transcript.costs(c.costs, self.costs.render())
 
     async def _wait_for_answer(self) -> bool:
         """Wait for the CONFIRMED state; handle unanswered and rejected calls."""
@@ -304,7 +312,7 @@ class Conversation:
         while not self.turns.empty():
             pcm += self.turns.get_nowait().pcm
         try:
-            text = await self.services.transcribe(pcm, self.language)
+            text = await self.services.transcribe(pcm, self.language, self.costs)
             self.api_errors = 0
         except MistralServiceError as e:
             await self._api_error("STT", e)
@@ -321,7 +329,7 @@ class Conversation:
         self.messages.append({"role": "user", "content": user_text})
         for _ in range(MAX_TOOL_STEPS):
             try:
-                message = await self.services.chat(self.messages, self._tools())
+                message = await self.services.chat(self.messages, self._tools(), self.costs)
                 self.api_errors = 0
             except MistralServiceError as e:
                 await self._api_error("LLM", e)
@@ -455,7 +463,7 @@ class Conversation:
     async def _synthesize_and_play(self, text: str) -> None:
         playback = self.sip_call.playback
         try:
-            async for pcm in self.services.synthesize(text, self.language):
+            async for pcm in self.services.synthesize(text, self.language, self.costs):
                 playback.push(pcm)
             playback.flush()
             self.api_errors = 0
@@ -472,7 +480,7 @@ class Conversation:
         pcm = self.services.cached_phrase(key, self.language)
         if pcm is None and wait:
             try:
-                pcm = await self.services.synthesize_all(text, self.language)
+                pcm = await self.services.synthesize_all(text, self.language, self.costs)
             except MistralServiceError as e:
                 log.warning("Service phrase %r cannot be spoken: %s", key, e)
         if pcm:

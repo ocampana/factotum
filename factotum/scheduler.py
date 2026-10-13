@@ -56,6 +56,7 @@ class Call:
     events: list[dict] = field(default_factory=list)
     failed_events: list[dict] = field(default_factory=list)
     transcript: str = ""
+    costs: dict = field(default_factory=dict)  # cost estimate of the last attempt
     error: str = ""
     created: datetime = field(default_factory=utcnow)
     started: datetime | None = None

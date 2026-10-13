@@ -14,6 +14,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .costs import Pricing
+
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -117,6 +119,7 @@ class Config:
     google_sa_file: str = ""
     timezone: str = "Europe/Rome"
     system_prompt: str = ""
+    pricing: Pricing = field(default_factory=Pricing)
 
 
 def _pick(section: dict, cls) -> dict:
@@ -198,6 +201,7 @@ def load_config(path: Path | None = None) -> Config:
         google_sa_file=_env("GOOGLE_SERVICE_ACCOUNT_FILE", ""),
         timezone=_env("TZ", "Europe/Rome"),
         system_prompt=prompt,
+        pricing=Pricing(**_pick(toml.get("pricing", {}), Pricing)),
     )
 
 

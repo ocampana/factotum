@@ -275,7 +275,8 @@ $("#call-list").addEventListener("click", async (ev) => {
     if (b.dataset.transcript) {
       const { entries } = await api("GET", `api/calls/${b.dataset.transcript}/transcript`);
       $("#transcript").textContent = entries.filter((e) => !e.header)
-        .map((e) => `[${e.ts.slice(11, 19)}] ${e.role.toUpperCase()}: ${e.text}`).join("\n");
+        .map((e) => e.role === "costs" ? `${"-".repeat(60)}\n${e.rendered}`
+          : `[${e.ts.slice(11, 19)}] ${e.role.toUpperCase()}: ${e.text}`).join("\n");
       $("#transcript-section").hidden = false;
       $("#transcript-section").scrollIntoView({ behavior: "smooth" });
     }

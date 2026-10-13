@@ -14,8 +14,9 @@ from typing import Any, AsyncIterator, Awaitable, Callable, TypeVar
 
 from mistralai.client import Mistral, errors
 
-from .audio import SAMPLE_RATE, TtsConverter, pcm16_to_wav
+from .audio import SAMPLE_RATE, TtsConverter, duration_ms, pcm16_to_wav
 from .config import MistralConfig
+from .costs import CostTracker
 from .languages import LANGUAGES, PHRASES, phrase
 
 log = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ class MistralServices:
 
     # ------------------------------------------------------------------ STT
 
-    async def transcribe(self, pcm: bytes, language: str) -> str:
+    async def transcribe(self, pcm: bytes, language: str, costs: CostTracker | None = None) -> str:
         wav = pcm16_to_wav(pcm, SAMPLE_RATE)
         response = await self._with_retries(
             "transcription",
@@ -130,11 +131,15 @@ class MistralServices:
             ),
             self.cfg.stt_timeout_s + 1,
         )
+        if costs is not None:
+            seconds = getattr(response.usage, "prompt_audio_seconds", None)
+            costs.add_stt(seconds if isinstance(seconds, (int, float)) and seconds > 0 else duration_ms(pcm) / 1000)
         return (response.text or "").strip()
 
     # ------------------------------------------------------------------ LLM
 
-    async def chat(self, messages: list[dict[str, Any]], tools: list[dict] | None = None):
+    async def chat(self, messages: list[dict[str, Any]], tools: list[dict] | None = None,
+                   costs: CostTracker | None = None):
         """Return the assistant message (text and/or tool calls)."""
         kwargs: dict[str, Any] = {
             "model": self.cfg.llm_model,
@@ -151,11 +156,14 @@ class MistralServices:
             lambda: self.client.chat.complete_async(**kwargs),
             self.cfg.llm_timeout_s + 1,
         )
+        if costs is not None and response.usage is not None:
+            costs.add_llm(response.usage.prompt_tokens or 0, response.usage.completion_tokens or 0)
         return response.choices[0].message
 
     # ------------------------------------------------------------------ TTS
 
-    async def synthesize(self, text: str, language: str) -> AsyncIterator[bytes]:
+    async def synthesize(self, text: str, language: str,
+                         costs: CostTracker | None = None) -> AsyncIterator[bytes]:
         """Stream 16-bit 16 kHz PCM, chunk by chunk.
 
         The timeout covers opening the stream and each chunk; retries only
@@ -176,6 +184,9 @@ class MistralServices:
             lambda: self.client.audio.speech.complete_async(**kwargs),
             self.cfg.tts_timeout_s,
         )
+        if costs is not None:
+            # Billed per input character once the request is accepted, even if interrupted
+            costs.add_tts(len(text))
         converter = TtsConverter()
         async with stream as events:
             iterator = events.__aiter__()
@@ -192,22 +203,22 @@ class MistralServices:
                     if pcm:
                         yield pcm
 
-    async def synthesize_all(self, text: str, language: str) -> bytes:
-        return b"".join([pcm async for pcm in self.synthesize(text, language)])
+    async def synthesize_all(self, text: str, language: str, costs: CostTracker | None = None) -> bytes:
+        return b"".join([pcm async for pcm in self.synthesize(text, language, costs)])
 
     # ------------------------------------------------------------------ service phrases
 
     def cached_phrase(self, key: str, language: str) -> bytes | None:
         return self._phrases.get((key, language, self.voice_for(language)))
 
-    async def prepare_phrases(self, language: str) -> None:
+    async def prepare_phrases(self, language: str, costs: CostTracker | None = None) -> None:
         """Pre-synthesize (once per language and voice) the phrases used when
         the APIs do not respond, so that the callee is never left in silence."""
         for key in PHRASES:
             if self.cached_phrase(key, language) is not None:
                 continue
             try:
-                pcm = await self.synthesize_all(phrase(key, language), language)
+                pcm = await self.synthesize_all(phrase(key, language), language, costs)
                 self._phrases[(key, language, self.voice_for(language))] = pcm
             except MistralServiceError as e:
                 log.warning("Service phrase %r (%s) not available: %s", key, language, e)

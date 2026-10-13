@@ -35,3 +35,12 @@ max_segment_ms = 30000
 min_threshold = 300          # minimum RMS (16-bit PCM) considered voice
 noise_factor = 3.0           # threshold = background noise * factor
 barge_in_factor = 2.0        # higher threshold while the agent is speaking
+
+[pricing]
+# Mistral API prices used for the cost section of each transcript (estimate).
+# Check https://docs.mistral.ai/inference/pricing and update when they change.
+currency = "USD"
+llm_input_per_mtok = 0.15    # mistral-small, per 1M input tokens
+llm_output_per_mtok = 0.60   # mistral-small, per 1M output tokens
+stt_per_minute = 0.003       # Voxtral Mini Transcribe, per minute of audio
+tts_per_mchar = 16.0         # Voxtral TTS, per 1M characters

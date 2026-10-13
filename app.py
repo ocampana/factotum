@@ -121,7 +121,7 @@ class Application:
         calendar = self.calendars.get("google") if call.calendars else None
         conversation = Conversation(
             call, user, self.sip, self.services, calendar, transcript,
-            self.cfg.calls, self.cfg.vad, self.cfg.system_prompt,
+            self.cfg.calls, self.cfg.vad, self.cfg.system_prompt, self.cfg.pricing,
         )
         try:
             await conversation.run()
@@ -146,6 +146,8 @@ class Application:
             lines.append(f"Summary: {call.summary}")
         for event in call.events:
             lines.append(f"Calendar appointment: {event.get('link') or event.get('id')}")
+        if call.costs:
+            lines.append(f"Estimated API cost: {call.costs['total']:.4f} {call.costs['currency']}")
         lines += ["", "Transcript:"]
         lines += [f"{e['ts'][11:19]} {e['role']}: {e['text']}" for e in transcript.dialogue()]
         try:
