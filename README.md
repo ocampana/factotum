@@ -27,6 +27,16 @@ It runs in an Alpine-based Docker image (~100 MB) and targets less than 150 MB o
 - Robustness: SIP re-registration, retries on busy/no answer/dropped calls within the window,
   timeouts and retries on every Mistral request, pre-synthesized fallback phrases, clean shutdown.
 
+### Turn-taking
+
+The callee's speech is segmented by an energy-based VAD: a turn ends after
+`end_of_turn_ms` of silence (900 ms by default, in `config/sip.toml`) and is sent
+to Voxtral as one request. If the callee resumes speaking while that turn is still
+being processed (transcription or the LLM request, before any tool runs or
+anything is said), the processing is cancelled and the turn is merged with the
+next one, so the agent does not answer half a sentence. If the callee talks over
+the agent, playback stops (barge-in).
+
 The call list lives in RAM by design; user profiles and transcripts are persisted under `data/`.
 
 ## Architecture

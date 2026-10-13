@@ -140,7 +140,7 @@ class Vad:
 
     PRE_ROLL_MS = 300
 
-    def __init__(self, end_of_turn_ms: int = 700, min_speech_ms: int = 250,
+    def __init__(self, end_of_turn_ms: int = 900, min_speech_ms: int = 250,
                  max_segment_ms: int = 30000, min_threshold: int = 300,
                  noise_factor: float = 3.0, barge_in_factor: float = 2.0):
         self.end_of_turn_frames = max(1, end_of_turn_ms // FRAME_MS)

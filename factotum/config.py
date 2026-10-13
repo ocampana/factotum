@@ -79,7 +79,7 @@ class CallsConfig:
 
 @dataclass
 class VadConfig:
-    end_of_turn_ms: int = 700
+    end_of_turn_ms: int = 900
     min_speech_ms: int = 250
     max_segment_ms: int = 30000
     min_threshold: int = 300

@@ -8,6 +8,12 @@ Structure:
   over the agent, playback stops);
 - the main task processes one turn at a time and watches for silence,
   maximum duration and remote hangup.
+
+Late-turn merging: if the callee starts speaking again while their previous
+turn is still being processed (STT or the LLM request, before any tool runs
+or anything is said), that processing is cancelled and the audio/text is
+carried over and merged with the new turn. This avoids answering half a
+sentence when the callee pauses in the middle of it.
 """
 
 from __future__ import annotations
@@ -79,6 +85,11 @@ class Conversation:
         self.last_heard = time.monotonic()
         self.prompted = False
         self._speak_task: asyncio.Task | None = None
+        # Turn processing that can still be cancelled and merged with a new turn
+        self._turn_task: asyncio.Task | None = None
+        self._interruptible = False
+        self._carry_pcm = b""   # audio of an interrupted turn, not transcribed yet
+        self._carry_text = ""   # text of an interrupted turn, not answered yet
         mc = services.cfg
         self.costs = CostTracker(pricing or Pricing(), mc.llm_model, mc.stt_model, mc.tts_model)
 
@@ -199,6 +210,8 @@ class Conversation:
                 listen_task.cancel()
             if self._speak_task:
                 self._speak_task.cancel()
+            if self._turn_task:
+                self._turn_task.cancel()
             if self.sip_call and not self.sip_call.disconnected:
                 try:
                     await asyncio.shield(self.sip.hangup(self.sip_call))
@@ -243,6 +256,9 @@ class Conversation:
             event = self.vad.process(frame, agent_speaking=agent_speaking)
             if event == "start":
                 self.last_heard = time.monotonic()
+                if self._turn_task and not self._turn_task.done() and self._interruptible:
+                    log.debug("Callee resumed speaking: merging with the turn being processed")
+                    self._turn_task.cancel()
                 if agent_speaking and not self.closing:
                     log.debug("Barge-in: stopping playback")
                     playback.clear()
@@ -251,6 +267,9 @@ class Conversation:
             elif isinstance(event, tuple):
                 self.last_heard = time.monotonic()
                 await self.turns.put(_Turn(event[1], time.monotonic()))
+            elif event == "discarded" and self._has_carry() and not self._turn_running():
+                # The "speech" that interrupted a turn was just noise: resume that turn
+                await self.turns.put(_Turn(b"", time.monotonic()))
 
     async def _converse(self) -> None:
         c = self.call
@@ -259,7 +278,7 @@ class Conversation:
         # otherwise the agent opens the conversation.
         try:
             turn = await asyncio.wait_for(self.turns.get(), FIRST_GREETING_WAIT_S)
-            await self._handle_turn(turn)
+            await self._process_turn(turn)
         except asyncio.TimeoutError:
             await self._respond("(The callee answered but has not spoken yet. Introduce yourself.)")
 
@@ -276,9 +295,22 @@ class Conversation:
             except asyncio.TimeoutError:
                 await self._check_silence()
                 continue
-            await self._handle_turn(turn)
+            await self._process_turn(turn)
 
         await self._wait_playback_finished()
+
+    def _has_carry(self) -> bool:
+        return bool(self._carry_pcm or self._carry_text)
+
+    def _turn_running(self) -> bool:
+        return self._turn_task is not None and not self._turn_task.done()
+
+    async def _process_turn(self, turn: _Turn) -> None:
+        """Handle a turn in a task that `_listen` may cancel if the callee resumes speaking."""
+        self._turn_task = asyncio.create_task(self._handle_turn(turn))
+        await asyncio.wait({self._turn_task})
+        if self._turn_task.cancelled():
+            self.transcript.system("Callee resumed speaking: turn merged with the next one")
 
     def _remote_hung_up(self) -> bool:
         if self.sip_call.disconnected:
@@ -289,7 +321,8 @@ class Conversation:
         return False
 
     async def _check_silence(self) -> None:
-        if self.sip_call.playback.playing or self.vad.speaking or not self.turns.empty():
+        if (self.sip_call.playback.playing or self.vad.speaking or not self.turns.empty()
+                or self._has_carry()):
             self.last_heard = time.monotonic()
             return
         if self._speak_task and not self._speak_task.done():
@@ -307,33 +340,57 @@ class Conversation:
             self.closing = True
 
     async def _handle_turn(self, turn: _Turn) -> None:
-        # Merge turns that arrived while the previous one was being processed
-        pcm = turn.pcm
+        # Merge the audio of an interrupted turn and of turns queued meanwhile
+        self._carry_pcm += turn.pcm
         while not self.turns.empty():
-            pcm += self.turns.get_nowait().pcm
+            self._carry_pcm += self.turns.get_nowait().pcm
+        self._interruptible = True
         try:
-            text = await self.services.transcribe(pcm, self.language, self.costs)
-            self.api_errors = 0
-        except MistralServiceError as e:
-            await self._api_error("STT", e)
-            return
-        if not text:
-            return
-        self.prompted = False
-        log.info("Callee: %s", text)
-        self.transcript.callee(text)
-        await self._respond(text)
+            if self._carry_pcm:
+                try:
+                    text = await self.services.transcribe(self._carry_pcm, self.language, self.costs)
+                    self.api_errors = 0
+                except MistralServiceError as e:
+                    self._carry_pcm = b""
+                    self._interruptible = False
+                    await self._api_error("STT", e)
+                    return
+                self._carry_pcm = b""
+                self._carry_text = f"{self._carry_text} {text}".strip()
+            if not self._carry_text:
+                return
+            self.prompted = False
+            await self._respond(self._carry_text, from_callee=True)
+        finally:
+            self._interruptible = False
 
-    async def _respond(self, user_text: str) -> None:
-        """Ask the LLM for an answer (running tools) and speak it."""
-        self.messages.append({"role": "user", "content": user_text})
+    async def _respond(self, user_text: str, from_callee: bool = False) -> None:
+        """Ask the LLM for an answer (running tools) and speak it.
+
+        For callee turns, the first LLM request can still be cancelled by
+        `_listen`: the user message is committed to the history and the
+        transcript only once that request returns."""
+        user_message = {"role": "user", "content": user_text}
+        committed = False
         for _ in range(MAX_TOOL_STEPS):
             try:
-                message = await self.services.chat(self.messages, self._tools(), self.costs)
+                history = self.messages if committed else self.messages + [user_message]
+                message = await self.services.chat(history, self._tools(), self.costs)
                 self.api_errors = 0
             except MistralServiceError as e:
+                self._interruptible = False
+                self._carry_text = ""
                 await self._api_error("LLM", e)
                 return
+            if not committed:
+                # From here on tools may run and the agent speaks: no more merging
+                self._interruptible = False
+                committed = True
+                self.messages.append(user_message)
+                if from_callee:
+                    self._carry_text = ""
+                    log.info("Callee: %s", user_text)
+                    self.transcript.callee(user_text)
 
             tool_calls = message.tool_calls or []
             content = message.content if isinstance(message.content, str) else ""
